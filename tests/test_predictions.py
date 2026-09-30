@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -75,12 +75,12 @@ def test_feed_reminder_uses_latest_nursing_or_bottle() -> None:
         now=now,
         timezone=TZ,
         lead_minutes=30,
-        announce_after_minutes=149,
-        interval_override_minutes=180,
+        announce_after_minutes=179,
+        interval_override_minutes=210,
     )
     assert result is not None
-    assert result.event_time == last_bottle + timedelta(hours=3)
-    assert result.announce_at == last_bottle + timedelta(hours=2, minutes=29)
+    assert result.event_time == last_bottle + timedelta(hours=3, minutes=30)
+    assert result.announce_at == last_bottle + timedelta(hours=2, minutes=59)
     assert "还有30分钟" in result.message
 
 
@@ -91,8 +91,8 @@ def test_feed_reminder_is_disabled_while_timer_active() -> None:
         now=datetime.now(ZoneInfo(TZ)),
         timezone=TZ,
         lead_minutes=10,
-        announce_after_minutes=149,
-        interval_override_minutes=180,
+        announce_after_minutes=179,
+        interval_override_minutes=210,
     )
     assert result is None
 
@@ -101,8 +101,10 @@ def test_quiet_time_spans_midnight_with_exact_boundaries() -> None:
     def at(hour: int, minute: int = 0) -> datetime:
         return datetime(2027, 1, 1, hour, minute, tzinfo=ZoneInfo(TZ))
 
-    assert not is_quiet_time(at(20, 59), 21, 8)
-    assert is_quiet_time(at(21), 21, 8)
-    assert is_quiet_time(at(0), 21, 8)
-    assert is_quiet_time(at(7, 59), 21, 8)
-    assert not is_quiet_time(at(8), 21, 8)
+    start = time(19, 30)
+    end = time(8)
+    assert not is_quiet_time(at(19, 29), start, end)
+    assert is_quiet_time(at(19, 30), start, end)
+    assert is_quiet_time(at(0), start, end)
+    assert is_quiet_time(at(7, 59), start, end)
+    assert not is_quiet_time(at(8), start, end)

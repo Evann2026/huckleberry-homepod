@@ -18,6 +18,18 @@ class HomePodNotifier:
     def __init__(self, config: Config) -> None:
         self.config = config
 
+    async def _connect_homepod(self):
+        loop = asyncio.get_running_loop()
+        devices = await pyatv.scan(
+            loop,
+            timeout=8,
+            identifier=self.config.homepod_id,
+            protocol=Protocol.RAOP,
+        )
+        if not devices:
+            raise RuntimeError("找不到配置的 HomePod，请确认设备和 Mac 在同一网络")
+        return await pyatv.connect(devices[0], loop, protocol=Protocol.RAOP)
+
     async def announce(self, message: str) -> None:
         if self.config.dry_run:
             LOGGER.info("[试运行] %s", message)
@@ -44,17 +56,7 @@ class HomePodNotifier:
                 check=True,
                 timeout=30,
             )
-            loop = asyncio.get_running_loop()
-            devices = await pyatv.scan(
-                loop,
-                timeout=8,
-                identifier=self.config.homepod_id,
-                protocol=Protocol.RAOP,
-            )
-            if not devices:
-                raise RuntimeError("找不到配置的 HomePod，请确认设备和 Mac 在同一网络")
-
-            device = await pyatv.connect(devices[0], loop, protocol=Protocol.RAOP)
+            device = await self._connect_homepod()
             try:
                 await device.audio.set_volume(self.config.homepod_volume)
                 await device.stream.stream_file(str(audio))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -11,24 +11,28 @@ import aiohttp
 from huckleberry_api import HuckleberryAPI
 
 from .config import Config
+from .music import DirectMusicPlayer
 from .notifier import HomePodNotifier
 from .predictions import Reminder, feed_reminder, sleep_reminders
 
 LOGGER = logging.getLogger(__name__)
 
 
-def is_quiet_time(moment: datetime, start_hour: int, end_hour: int) -> bool:
-    if start_hour == end_hour:
+def is_quiet_time(moment: datetime, start_time: time, end_time: time) -> bool:
+    current_time = moment.time().replace(tzinfo=None)
+    if start_time == end_time:
         return False
-    if start_hour < end_hour:
-        return start_hour <= moment.hour < end_hour
-    return moment.hour >= start_hour or moment.hour < end_hour
+    if start_time < end_time:
+        return start_time <= current_time < end_time
+    return current_time >= start_time or current_time < end_time
 
 
 class ReminderService:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.notifier = HomePodNotifier(config)
+        self.music_player = DirectMusicPlayer(config)
+        self.music_task: asyncio.Task[None] | None = None
         self.sent = self._load_state(config.state_file)
 
     @staticmethod
@@ -46,6 +50,19 @@ class ReminderService:
             json.dumps({"sent": sorted(self.sent)[-200:]}, ensure_ascii=False)
         )
         temporary.replace(self.config.state_file)
+
+    async def _run_music(self) -> None:
+        try:
+            await self.music_player.play_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOGGER.exception("入睡音乐播放失败")
+
+    def _start_music(self) -> None:
+        if self.music_task is not None and not self.music_task.done():
+            return
+        self.music_task = asyncio.create_task(self._run_music())
 
     async def _connect(self) -> tuple[aiohttp.ClientSession, HuckleberryAPI, str]:
         session = aiohttp.ClientSession()
@@ -105,16 +122,16 @@ class ReminderService:
         now = datetime.now(ZoneInfo(self.config.timezone))
         if is_quiet_time(
             now,
-            self.config.quiet_start_hour,
-            self.config.quiet_end_hour,
+            self.config.quiet_start_time,
+            self.config.quiet_end_time,
         ):
             return
 
         for reminder in reminders:
             if is_quiet_time(
                 reminder.announce_at,
-                self.config.quiet_start_hour,
-                self.config.quiet_end_hour,
+                self.config.quiet_start_time,
+                self.config.quiet_end_time,
             ):
                 continue
             is_due = reminder.announce_at <= now <= reminder.event_time + timedelta(minutes=5)
@@ -128,6 +145,8 @@ class ReminderService:
                 reminder.kind,
                 reminder.event_time.strftime("%H:%M"),
             )
+            if reminder.kind == "sleep":
+                self._start_music()
 
     async def once(self, *, show: bool = False, announce: bool = True) -> None:
         session, api, child_id = await self._connect()

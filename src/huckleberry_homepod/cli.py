@@ -10,6 +10,7 @@ from pyatv.const import Protocol
 
 from .app import ReminderService
 from .config import Config, ConfigError
+from .music import DirectMusicPlayer
 from .notifier import HomePodNotifier
 
 
@@ -19,6 +20,8 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("scan", help="查找局域网中的 HomePod")
     test = subparsers.add_parser("test-homepod", help="测试 HomePod 中文播报")
     test.add_argument("--message", default="HomePod 提醒测试成功。")
+    subparsers.add_parser("test-music", help="测试 HomePod 持续音乐推流")
+    subparsers.add_parser("stop-music", help="停止 HomePod 音乐推流")
     subparsers.add_parser("inspect", help="显示当前预测，不进行播报")
     subparsers.add_parser("once", help="同步一次并播报到期提醒")
     subparsers.add_parser("run", help="持续运行提醒服务")
@@ -52,6 +55,13 @@ def main() -> None:
             asyncio.run(
                 HomePodNotifier(Config.load(require_huckleberry=False)).announce(args.message)
             )
+            return
+        if args.command in {"test-music", "stop-music"}:
+            player = DirectMusicPlayer(Config.load(require_huckleberry=False))
+            if args.command == "test-music":
+                asyncio.run(player.play_loop())
+            else:
+                asyncio.run(player.stop())
             return
 
         service = ReminderService(Config.load())
